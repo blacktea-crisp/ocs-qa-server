@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>设置 - OCS 题库管理台</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="top"></div>
+  <div class="container">
+    <div class="panel">
+      <h2>连接配置（保存在浏览器本地）</h2>
+      <div class="body">
+        <div class="row">
+          <label style="width:160px">后端 API 地址</label>
+          <input id="api_base" style="width:320px" />
+          <button class="sm" onclick="saveConn('API_BASE','api_base')">保存</button>
+        </div>
+        <div class="row">
+          <label style="width:160px">Supervisor 地址</label>
+          <input id="sup_base" style="width:320px" />
+          <button class="sm" onclick="saveConn('SUPERVISOR_BASE','sup_base')">保存</button>
+        </div>
+        <div class="row">
+          <label style="width:160px">管理 Token</label>
+          <input id="token" style="width:320px" />
+          <button class="sm" onclick="saveConn('TOKEN','token')">保存</button>
+        </div>
+        <div class="hint">保存后页面会刷新。Token 需与后端 .env 的 ADMIN_TOKEN 一致。</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>答题设置（保存到后端，即时生效）</h2>
+      <div class="body" id="form">
+        <div class="row">
+          <label style="width:200px">默认答案信任策略</label>
+          <select id="default_answer_trust" style="width:260px">
+            <option value="trusted_only">trusted_only（只信可信）</option>
+            <option value="prefer_trusted">prefer_trusted（优先可信，没可信用候选）</option>
+            <option value="allow_candidate">allow_candidate（候选也直接用）</option>
+          </select>
+        </div>
+        <div class="row">
+          <label style="width:200px">启用大模型答题</label>
+          <select id="enable_llm" style="width:260px"><option value="true">启用</option><option value="false">禁用</option></select>
+        </div>
+        <div class="row">
+          <label style="width:200px">启用识图</label>
+          <select id="enable_vision" style="width:260px"><option value="true">启用</option><option value="false">禁用</option></select>
+        </div>
+        <div class="row">
+          <label style="width:200px">大模型 base_url</label>
+          <input id="llm_base_url" style="width:360px" placeholder="http://127.0.0.1:11434/v1" />
+        </div>
+        <div class="row">
+          <label style="width:200px">文本模型</label>
+          <input id="llm_model" style="width:260px" placeholder="qwen2.5:7b" />
+        </div>
+        <div class="row">
+          <label style="width:200px">视觉模型</label>
+          <input id="vision_model" style="width:260px" placeholder="qwen2.5vl:7b" />
+        </div>
+        <div class="row">
+          <label style="width:200px">API Key</label>
+          <input id="llm_api_key" type="password" style="width:360px" placeholder="云端填真实 key；本地 Ollama 随便填" autocomplete="off" />
+          <button class="ghost sm" onclick="toggleKey()">显示/隐藏</button>
+        </div>
+        <button onclick="saveSettings()">保存设置</button>
+        <span id="msg" class="muted" style="margin-left:12px"></span>
+        <div class="hint">本地 Ollama：base_url 填 http://127.0.0.1:11434/v1；云端填对应 OpenAI 兼容地址。改 base_url/模型后需后端能访问该地址。</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="api.js"></script>
+  <script>
+    document.getElementById("top").replaceWith(renderTopbar("settings.html"));
+    document.getElementById("api_base").value = CONFIG.API_BASE;
+    document.getElementById("sup_base").value = CONFIG.SUPERVISOR_BASE;
+    document.getElementById("token").value = CONFIG.TOKEN;
+
+    function saveConn(key, inputId) {
+      setConfig(key, document.getElementById(inputId).value.trim());
+    }
+
+    async function loadSettings() {
+      try {
+        const d = await api("/api/admin/settings");
+        const e = d.effective;
+        document.getElementById("default_answer_trust").value = e.default_answer_trust;
+        document.getElementById("enable_llm").value = String(e.enable_llm);
+        document.getElementById("enable_vision").value = String(e.enable_vision);
+        document.getElementById("llm_base_url").value = e.llm_base_url || "";
+        document.getElementById("llm_model").value = e.llm_model || "";
+        document.getElementById("vision_model").value = e.vision_model || "";
+        // API Key 出于安全不回显明文，留空表示“不修改”
+        document.getElementById("llm_api_key").placeholder =
+          e.llm_api_key_set ? "已设置（留空则保持不变）" : "云端填真实 key；本地 Ollama 随便填";
+      } catch (err) {
+        document.getElementById("msg").innerHTML = `<span class="red">读取设置失败: ${err.message}</span>`;
+      }
+    }
+
+    function toggleKey() {
+      const el = document.getElementById("llm_api_key");
+      el.type = el.type === "password" ? "text" : "password";
+    }
+
+    async function saveSettings() {
+      const body = {
+        default_answer_trust: document.getElementById("default_answer_trust").value,
+        enable_llm: document.getElementById("enable_llm").value,
+        enable_vision: document.getElementById("enable_vision").value,
+        llm_base_url: document.getElementById("llm_base_url").value.trim(),
+        llm_model: document.getElementById("llm_model").value.trim(),
+        vision_model: document.getElementById("vision_model").value.trim(),
+      };
+      // 只有用户实际填了 key 才提交（留空=保持原值）
+      const key = document.getElementById("llm_api_key").value;
+      if (key) body.llm_api_key = key;
+      try {
+        await api("/api/admin/settings", { method: "PUT", body: JSON.stringify(body) });
+        document.getElementById("llm_api_key").value = "";
+        document.getElementById("llm_api_key").placeholder = "已设置（留空则保持不变）";
+        document.getElementById("msg").innerHTML = `<span class="tag trusted">已保存</span>`;
+        setTimeout(() => (document.getElementById("msg").innerHTML = ""), 2000);
+      } catch (e) {
+        document.getElementById("msg").innerHTML = `<span class="red">保存失败: ${e.message}</span>`;
+      }
+    }
+
+    loadSettings();
+  </script>
+</body>
+</html>

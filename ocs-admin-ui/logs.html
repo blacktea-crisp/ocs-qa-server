@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>日志 - OCS 题库管理台</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="top"></div>
+  <div class="container">
+    <div class="panel">
+      <h2>请求日志（请求级概要）</h2>
+      <div class="body">
+        <table id="list"><thead>
+          <tr><th>时间</th><th>题目</th><th>来源</th><th>状态</th><th>耗时</th><th>Token</th><th>错误</th><th>请求ID</th></tr>
+        </thead><tbody></tbody></table>
+        <div class="row" style="margin-top:14px">
+          <button class="ghost sm" onclick="load(offset-30)">上一页</button>
+          <button class="ghost sm" onclick="load(offset+30)">下一页</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="detail-panel" style="display:none">
+      <h2>请求链路回放（步骤级明细）</h2>
+      <div class="body" id="detail"></div>
+    </div>
+  </div>
+
+  <script src="api.js"></script>
+  <script>
+    document.getElementById("top").replaceWith(renderTopbar("logs.html"));
+    let offset = 0;
+    const LIMIT = 30;
+
+    async function load(off) {
+      offset = Math.max(0, off || 0);
+      let d;
+      try { d = await api(`/api/admin/logs?limit=${LIMIT}&offset=${offset}`); }
+      catch (e) { document.querySelector("#list tbody").innerHTML = `<tr><td colspan="8" class="muted">加载失败: ${e.message}</td></tr>`; return; }
+      document.querySelector("#list tbody").innerHTML = (d.items || []).map(r => `
+        <tr>
+          <td class="muted">${fmtTime(r.created_at)}</td>
+          <td>${esc((r.title || "").slice(0, 40))}</td>
+          <td>${r.store_hit ? statusTag("store") : statusTag("llm")}</td>
+          <td>${statusTag(r.answer_status)}</td>
+          <td class="muted">${r.latency_ms}ms</td>
+          <td class="muted">${(r.prompt_tokens || 0) + (r.completion_tokens || 0)}</td>
+          <td>${r.error ? `<span class="tag conflict">${esc(r.error).slice(0, 30)}</span>` : ""}</td>
+          <td><a class="mono" href="#" onclick='showDetail("${r.request_id}");return false'>${(r.request_id || "").slice(0, 10)}</a></td>
+        </tr>`).join("") || `<tr><td colspan="8" class="muted">暂无日志</td></tr>`;
+    }
+
+    async function showDetail(rid) {
+      const panel = document.getElementById("detail-panel");
+      panel.style.display = "block";
+      let log;
+      try { log = await api(`/api/admin/logs/${rid}`); }
+      catch (e) { document.getElementById("detail").innerHTML = `<span class="red">${e.message}</span>`; return; }
+      const sum = `
+        <div class="banner">
+          <div><b>题目：</b>${esc(log.title || "")} &nbsp; <b>类型：</b>${log.type}</div>
+          <div><b>最终答案：</b>${esc(log.final_answer || "-")} &nbsp; ${statusTag(log.answer_status)}
+            &nbsp; <b>来源：</b>${log.store_hit ? "题库命中" : "大模型"} &nbsp; <b>信任模式：</b>${log.trust_mode}</div>
+          <div class="muted">耗时 ${log.latency_ms}ms · 提示token ${log.prompt_tokens} · 完成token ${log.completion_tokens}${log.error ? " · 错误: " + esc(log.error) : ""}</div>
+        </div>`;
+      const steps = (log.steps || []).map(s => `
+        <div class="step ${s.ok ? "ok" : "fail"}">
+          <div><span class="stage">#${s.seq} ${s.stage}</span> ${s.ok ? "" : '<span class="tag conflict">失败</span>'}
+            <span class="muted">${s.latency_ms}ms</span></div>
+          ${s.input_json ? `<div class="hint">input:</div><pre>${esc(pretty(s.input_json))}</pre>` : ""}
+          ${s.output_json ? `<div class="hint">output:</div><pre>${esc(pretty(s.output_json))}</pre>` : ""}
+          ${s.error ? `<div class="red">错误: ${esc(s.error)}</div>` : ""}
+        </div>`).join("");
+      document.getElementById("detail").innerHTML = sum + steps;
+    }
+
+    function pretty(s) { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } }
+    function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+    load(0);
+    // 支持从仪表盘带 ?id= 直接打开
+    const params = new URLSearchParams(location.search);
+    if (params.get("id")) showDetail(params.get("id"));
+  </script>
+</body>
+</html>

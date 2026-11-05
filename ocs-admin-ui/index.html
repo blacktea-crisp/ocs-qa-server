@@ -36,14 +36,16 @@
       try {
         const st = await supervisor("/api/admin/service/status");
         const alive = st.backend_alive;
+        // 单一两态主按钮：运行时=红色「停止」，停止时=绿色「启动」
         b.innerHTML = `
           <div class="row" style="margin:0">
             <span>后端服务：<b class="${alive ? "tag trusted" : "tag conflict"}">${alive ? "运行中" : "已停止"}</b></span>
             <span class="muted">端口 ${st.backend_port}${st.uptime_s ? " · 运行 " + st.uptime_s + "s" : ""}</span>
             <span class="spacer" style="flex:1"></span>
-            <button class="green sm" onclick="svc('start')">启动</button>
-            <button class="ghost sm" onclick="svc('stop')">停止</button>
-            <button class="sm" onclick="svc('restart')">重启</button>
+            ${alive
+              ? `<button class="red sm" onclick="svc('stop')">■ 停止服务</button>
+                 <button class="ghost sm" onclick="svc('restart')">↻ 重启</button>`
+              : `<button class="green sm" onclick="svc('start')">▶ 启动服务</button>`}
           </div>`;
       } catch (e) {
         b.innerHTML = `<span class="tag conflict">supervisor 未连接</span> <span class="muted">（${CONFIG.SUPERVISOR_BASE}）— 请先启动 supervisor 以使用启停功能。${e.message}</span>`;

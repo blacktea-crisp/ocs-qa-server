@@ -144,12 +144,24 @@ def get_conn() -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
+        conn.execute("PRAGMA busy_timeout=8000;")  # 并发写时等待而非立即报 locked
         _local.conn = conn
     return conn
 
 
+# 迁移版本号（用 PRAGMA user_version 记录，避免每次启动重复全量写）
+MIGRATION_VERSION = 2
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
-    """幂等增量迁移：补列、种子题型、回填结构化答案、回填 options 表。"""
+    """幂等增量迁移：补列、种子题型、回填结构化答案、回填 options 表。
+
+    用 PRAGMA user_version 记录已迁移版本，版本达标则跳过（减少启动写锁）。
+    """
+    cur_ver = conn.execute("PRAGMA user_version").fetchone()[0]
+    if cur_ver >= MIGRATION_VERSION:
+        return
+
     # 1) answers 补列
     cols = {r[1] for r in conn.execute("PRAGMA table_info(answers)").fetchall()}
     for name, decl in _ANSWERS_NEW_COLUMNS:
@@ -190,6 +202,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         aj = infer_answer_json(r["answer"], r["type"])
         conn.execute("UPDATE answers SET answer_json=? WHERE id=?", (_json.dumps(aj, ensure_ascii=False), r["id"]))
 
+    conn.execute(f"PRAGMA user_version={MIGRATION_VERSION}")
     conn.commit()
 
 

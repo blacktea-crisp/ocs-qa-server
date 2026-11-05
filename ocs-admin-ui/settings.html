@@ -30,12 +30,59 @@
       </div>
     </div>
 
+    <!-- 提供商配置档案 -->
+    <div class="panel">
+      <h2>提供商配置档案（多套配置，可切换）</h2>
+      <div class="body">
+        <div class="row">
+          <label style="width:100px">当前档案</label>
+          <select id="profile-select" style="width:240px" onchange="onProfileSelect()"></select>
+          <button class="green sm" onclick="activateProfile()">设为生效</button>
+          <span id="active-badge" class="muted"></span>
+        </div>
+        <div class="row">
+          <label style="width:100px">名称</label>
+          <input id="p_name" style="width:200px" placeholder="如：本地Ollama / OpenAI" />
+          <label style="width:90px">Provider</label>
+          <input id="p_provider" style="width:140px" placeholder="openai/ollama/custom" />
+        </div>
+        <div class="row">
+          <label style="width:100px">base_url</label>
+          <input id="p_base_url" style="width:360px" placeholder="http://127.0.0.1:11434/v1" />
+        </div>
+        <div class="row">
+          <label style="width:100px">文本模型</label>
+          <input id="p_model" style="width:220px" placeholder="qwen2.5:7b" />
+          <button class="ghost sm" onclick="fetchModels()">获取模型列表</button>
+          <select id="model-list" style="width:200px;display:none" onchange="pickModel()"></select>
+        </div>
+        <div class="row">
+          <label style="width:100px">视觉模型</label>
+          <input id="p_vision" style="width:220px" placeholder="qwen2.5vl:7b" />
+        </div>
+        <div class="row">
+          <label style="width:100px">API Key</label>
+          <input id="p_key" type="password" style="width:360px" placeholder="留空=不修改" autocomplete="off" />
+          <button class="ghost sm" onclick="toggleKey()">显示/隐藏</button>
+        </div>
+        <div class="row">
+          <button class="green sm" onclick="saveProfile()">保存档案</button>
+          <button class="ghost sm" onclick="newProfile()">新建档案</button>
+          <button class="red sm" onclick="deleteProfile()">删除当前档案</button>
+          <button class="sm" onclick="testConn()">测试连接</button>
+          <span id="p_msg" class="muted" style="margin-left:8px"></span>
+        </div>
+        <div class="hint">档案生效优先级：激活档案 &gt; 单项设置 &gt; .env。测试连接会用当前表单内容发一次极简请求。</div>
+      </div>
+    </div>
+
+    <!-- 答题设置 -->
     <div class="panel">
       <h2>答题设置（保存到后端，即时生效）</h2>
-      <div class="body" id="form">
+      <div class="body">
         <div class="row">
           <label style="width:200px">默认答案信任策略</label>
-          <select id="default_answer_trust" style="width:260px">
+          <select id="default_answer_trust" style="width:300px">
             <option value="trusted_only">trusted_only（只信可信）</option>
             <option value="prefer_trusted">prefer_trusted（优先可信，没可信用候选）</option>
             <option value="allow_candidate">allow_candidate（候选也直接用）</option>
@@ -43,32 +90,14 @@
         </div>
         <div class="row">
           <label style="width:200px">启用大模型答题</label>
-          <select id="enable_llm" style="width:260px"><option value="true">启用</option><option value="false">禁用</option></select>
+          <select id="enable_llm" style="width:200px"><option value="true">启用</option><option value="false">禁用</option></select>
         </div>
         <div class="row">
           <label style="width:200px">启用识图</label>
-          <select id="enable_vision" style="width:260px"><option value="true">启用</option><option value="false">禁用</option></select>
+          <select id="enable_vision" style="width:200px"><option value="true">启用</option><option value="false">禁用</option></select>
         </div>
-        <div class="row">
-          <label style="width:200px">大模型 base_url</label>
-          <input id="llm_base_url" style="width:360px" placeholder="http://127.0.0.1:11434/v1" />
-        </div>
-        <div class="row">
-          <label style="width:200px">文本模型</label>
-          <input id="llm_model" style="width:260px" placeholder="qwen2.5:7b" />
-        </div>
-        <div class="row">
-          <label style="width:200px">视觉模型</label>
-          <input id="vision_model" style="width:260px" placeholder="qwen2.5vl:7b" />
-        </div>
-        <div class="row">
-          <label style="width:200px">API Key</label>
-          <input id="llm_api_key" type="password" style="width:360px" placeholder="云端填真实 key；本地 Ollama 随便填" autocomplete="off" />
-          <button class="ghost sm" onclick="toggleKey()">显示/隐藏</button>
-        </div>
-        <button onclick="saveSettings()">保存设置</button>
+        <button onclick="saveSettings()">保存答题设置</button>
         <span id="msg" class="muted" style="margin-left:12px"></span>
-        <div class="hint">本地 Ollama：base_url 填 http://127.0.0.1:11434/v1；云端填对应 OpenAI 兼容地址。改 base_url/模型后需后端能访问该地址。</div>
       </div>
     </div>
   </div>
@@ -79,11 +108,124 @@
     document.getElementById("api_base").value = CONFIG.API_BASE;
     document.getElementById("sup_base").value = CONFIG.SUPERVISOR_BASE;
     document.getElementById("token").value = CONFIG.TOKEN;
+    let PROFILES = [];
 
-    function saveConn(key, inputId) {
-      setConfig(key, document.getElementById(inputId).value.trim());
+    function saveConn(key, inputId) { setConfig(key, document.getElementById(inputId).value.trim()); }
+    function toggleKey() { const el = document.getElementById("p_key"); el.type = el.type === "password" ? "text" : "password"; }
+
+    // ---- 档案 ----
+    async function loadProfiles() {
+      try {
+        PROFILES = (await api("/api/admin/llm/profiles")).items || [];
+        const sel = document.getElementById("profile-select");
+        sel.innerHTML = `<option value="">(无档案，使用单项设置/.env)</option>` +
+          PROFILES.map(p => `<option value="${p.id}">${p.name}${p.is_active ? " ✓生效" : ""}</option>`).join("");
+        const act = PROFILES.find(p => p.is_active);
+        document.getElementById("active-badge").textContent = act ? `当前生效：${act.name}` : "当前无激活档案";
+        if (act) fillForm(act);
+      } catch (e) { /* 忽略 */ }
     }
 
+    function onProfileSelect() {
+      const id = document.getElementById("profile-select").value;
+      const p = PROFILES.find(x => String(x.id) === id);
+      if (p) fillForm(p); else clearForm();
+    }
+    function fillForm(p) {
+      document.getElementById("p_name").value = p.name || "";
+      document.getElementById("p_provider").value = p.provider || "";
+      document.getElementById("p_base_url").value = p.base_url || "";
+      document.getElementById("p_model").value = p.model || "";
+      document.getElementById("p_vision").value = p.vision_model || "";
+      document.getElementById("p_key").value = "";
+      document.getElementById("p_key").placeholder = p.api_key_set ? "已设置（留空=不修改）" : "填 API Key";
+    }
+    function clearForm() {
+      ["p_name","p_provider","p_base_url","p_model","p_vision","p_key"].forEach(id => (document.getElementById(id).value = ""));
+    }
+    function formBody() {
+      const b = {
+        name: document.getElementById("p_name").value.trim(),
+        provider: document.getElementById("p_provider").value.trim() || "custom",
+        base_url: document.getElementById("p_base_url").value.trim(),
+        model: document.getElementById("p_model").value.trim(),
+        vision_model: document.getElementById("p_vision").value.trim(),
+      };
+      const k = document.getElementById("p_key").value;
+      if (k) b.api_key = k;  // 留空不覆盖
+      return b;
+    }
+
+    async function saveProfile() {
+      const id = document.getElementById("profile-select").value;
+      const body = formBody();
+      if (!body.name) { msgP("请填写档案名称", true); return; }
+      try {
+        if (id) { await api(`/api/admin/llm/profiles/${id}`, { method: "PUT", body: JSON.stringify(body) }); }
+        else { await api("/api/admin/llm/profiles", { method: "POST", body: JSON.stringify({ ...body, activate: true }) }); }
+        msgP("已保存");
+        await loadProfiles();
+      } catch (e) { msgP("保存失败: " + e.message, true); }
+    }
+    function newProfile() { clearForm(); document.getElementById("profile-select").value = ""; document.getElementById("p_key").placeholder = "填 API Key"; }
+    async function deleteProfile() {
+      const id = document.getElementById("profile-select").value;
+      if (!id) { msgP("请先选择一个档案", true); return; }
+      if (!confirm("确认删除该档案？")) return;
+      await api(`/api/admin/llm/profiles/${id}`, { method: "DELETE" });
+      clearForm(); await loadProfiles(); msgP("已删除");
+    }
+    async function activateProfile() {
+      const id = document.getElementById("profile-select").value;
+      if (!id) { msgP("请先选择一个档案", true); return; }
+      await api(`/api/admin/llm/profiles/${id}/activate`, { method: "POST" });
+      await loadProfiles(); msgP("已设为生效");
+    }
+    function msgP(t, err) {
+      const el = document.getElementById("p_msg");
+      el.innerHTML = `<span class="${err ? "red" : "tag trusted"}">${t}</span>`;
+      setTimeout(() => (el.innerHTML = ""), 3000);
+    }
+
+    // ---- 获取模型 ----
+    async function fetchModels() {
+      const base_url = document.getElementById("p_base_url").value.trim();
+      const api_key = document.getElementById("p_key").value;
+      const q = new URLSearchParams();
+      if (base_url) q.set("base_url", base_url);
+      if (api_key) q.set("api_key", api_key);
+      msgP("获取中…");
+      try {
+        const r = await api("/api/admin/llm/models?" + q.toString());
+        if (!r.ok) { msgP("获取失败: " + (r.error || ""), true); return; }
+        const sel = document.getElementById("model-list");
+        sel.innerHTML = r.models.map(m => `<option value="${m}">${m}</option>`).join("");
+        sel.style.display = "inline-block";
+        msgP(`共 ${r.models.length} 个模型`);
+      } catch (e) { msgP("获取失败: " + e.message, true); }
+    }
+    function pickModel() {
+      const m = document.getElementById("model-list").value;
+      if (m) document.getElementById("p_model").value = m;
+    }
+
+    // ---- 测试连接 ----
+    async function testConn() {
+      const body = {
+        base_url: document.getElementById("p_base_url").value.trim(),
+        model: document.getElementById("p_model").value.trim(),
+      };
+      const k = document.getElementById("p_key").value;
+      if (k) body.api_key = k;
+      msgP("测试中…");
+      try {
+        const r = await api("/api/admin/llm/test", { method: "POST", body: JSON.stringify(body) });
+        if (r.ok) msgP(`连接成功 · ${r.model} · ${r.latency_ms}ms · 回复:${r.reply}`);
+        else msgP(`连接失败: ${r.error}`, true);
+      } catch (e) { msgP("测试失败: " + e.message, true); }
+    }
+
+    // ---- 答题设置 ----
     async function loadSettings() {
       try {
         const d = await api("/api/admin/settings");
@@ -91,38 +233,18 @@
         document.getElementById("default_answer_trust").value = e.default_answer_trust;
         document.getElementById("enable_llm").value = String(e.enable_llm);
         document.getElementById("enable_vision").value = String(e.enable_vision);
-        document.getElementById("llm_base_url").value = e.llm_base_url || "";
-        document.getElementById("llm_model").value = e.llm_model || "";
-        document.getElementById("vision_model").value = e.vision_model || "";
-        // API Key 出于安全不回显明文，留空表示“不修改”
-        document.getElementById("llm_api_key").placeholder =
-          e.llm_api_key_set ? "已设置（留空则保持不变）" : "云端填真实 key；本地 Ollama 随便填";
       } catch (err) {
         document.getElementById("msg").innerHTML = `<span class="red">读取设置失败: ${err.message}</span>`;
       }
     }
-
-    function toggleKey() {
-      const el = document.getElementById("llm_api_key");
-      el.type = el.type === "password" ? "text" : "password";
-    }
-
     async function saveSettings() {
       const body = {
         default_answer_trust: document.getElementById("default_answer_trust").value,
         enable_llm: document.getElementById("enable_llm").value,
         enable_vision: document.getElementById("enable_vision").value,
-        llm_base_url: document.getElementById("llm_base_url").value.trim(),
-        llm_model: document.getElementById("llm_model").value.trim(),
-        vision_model: document.getElementById("vision_model").value.trim(),
       };
-      // 只有用户实际填了 key 才提交（留空=保持原值）
-      const key = document.getElementById("llm_api_key").value;
-      if (key) body.llm_api_key = key;
       try {
         await api("/api/admin/settings", { method: "PUT", body: JSON.stringify(body) });
-        document.getElementById("llm_api_key").value = "";
-        document.getElementById("llm_api_key").placeholder = "已设置（留空则保持不变）";
         document.getElementById("msg").innerHTML = `<span class="tag trusted">已保存</span>`;
         setTimeout(() => (document.getElementById("msg").innerHTML = ""), 2000);
       } catch (e) {
@@ -131,6 +253,7 @@
     }
 
     loadSettings();
+    loadProfiles();
   </script>
 </body>
 </html>

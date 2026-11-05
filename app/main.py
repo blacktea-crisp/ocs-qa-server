@@ -22,7 +22,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title="OCS 自建题库后端",
-        version="0.2.0",
+        version="0.2.1",
         description="OCS 脚本题库适配 + 大模型答题 + 全链路记录 + 管理 API",
         lifespan=lifespan,
     )

@@ -420,10 +420,21 @@ class TrayApp:
 
     # ---------- 动作 ----------
     def _open_config(self):
+        # tkinter 窗口必须在有 mainloop 的主线程运行；托盘进程是纯 Win32 消息循环、无 tkinter loop，
+        # 故配置界面用【独立进程】启动，避免 "main thread is not in main loop"。
         def run():
             try:
-                from scripts import tray_config
-                tray_config.open_config()
+                import subprocess
+
+                from scripts import service_control as _sc
+
+                pyw = str(_sc.PYTHONW) if _sc.PYTHONW.exists() else str(_sc.PYTHON)
+                subprocess.Popen(
+                    [pyw, "-m", "scripts.tray_config"],
+                    cwd=str(ROOT),
+                    creationflags=0x08000000 | 0x00000008,  # CREATE_NO_WINDOW | DETACHED
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
             except Exception as e:
                 self._err("打开配置", str(e))
         threading.Thread(target=run, daemon=True).start()

@@ -56,21 +56,30 @@ def describe_image(data_url: str) -> tuple[str, dict]:
     return chat_with_image(VISION_PROMPT, data_url, model=settings.vision_model)
 
 
-def recognize(title: str, options: list[str]) -> tuple[str, dict, list[str]]:
+def recognize(title: str, options: list[str], images: list[str] | None = None) -> tuple[str, dict, list[str]]:
     """识别题干/选项中的图片。返回 (合并文字, usage聚合, 图片URL列表)。
-    无图片时返回空文字。单张失败跳过。"""
-    urls = extract_image_urls(title, options)
+
+    images: 外部直接传入的图片（OCS 图片优化传来的 data URL / URL 数组），优先处理。
+    无图片时返回空文字。单张失败跳过。
+    """
+    images = images or []
+    # 合并：来自 title/options 的 URL + 外部传入的 images
+    urls = list(images) + extract_image_urls(title, options)
+    # 去重
+    seen = set()
+    urls = [u for u in urls if not (u in seen or seen.add(u))]
     if not urls:
         return "", {}, []
     texts: list[str] = []
     usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "model": get_settings().vision_model}
     for url in urls:
         try:
-            data_url = download_as_data_url(url)
+            # 已是 data URL 直接使用；否则下载
+            data_url = url if str(url).startswith("data:") else download_as_data_url(url)
             text, usage = describe_image(data_url)
             texts.append(text)
             usage_total["prompt_tokens"] += usage.get("prompt_tokens", 0)
             usage_total["completion_tokens"] += usage.get("completion_tokens", 0)
         except Exception as e:  # 单张失败跳过
-            texts.append(f"[图片识别失败: {url}: {e}]")
+            texts.append(f"[图片识别失败: {str(url)[:60]}: {e}]")
     return "\n".join(texts), usage_total, urls

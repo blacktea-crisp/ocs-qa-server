@@ -417,6 +417,48 @@ class TestLogsFilter(BaseCase):
         self.assertGreater(len(r3.content), 0)
 
 
+class Test021Features(BaseCase):
+    def test_ocs_config_v1_v2(self):
+        for v in ("v1", "v2"):
+            r = self.client.get(f"/api/admin/ocs-config?version={v}&host=1.2.3.4&port=9000")
+            self.assertEqual(r.status_code, 200)
+            d = r.json()
+            self.assertTrue(d["ok"])
+            self.assertEqual(d["version"], v)
+            self.assertIn("text", d)
+        # v2 含 images 字段
+        d = self.client.get("/api/admin/ocs-config?version=v2").json()
+        self.assertIn("${images}", str(d["config"]))
+
+    def test_log_hit_answer_info(self):
+        # seed 一条题，请求命中，检查日志 hit_answer
+        from app.store import repository as repo
+        from app.store.models import AnswerSource, AnswerStatus
+        title, opts = "命中信息题", ["A", "B"]
+        qk = repo.compute_qkey(title, opts, "single")
+        repo.upsert_question(qk, title, repo.normalize(title), "single", opts)
+        repo.upsert_answer(qk, "A", AnswerSource.STORE, AnswerStatus.TRUSTED, 1.0)
+        rid = self.client.post("/search", json={"title": title, "type": "single", "options": opts}).json()["request_id"]
+        log = self.client.get(f"/api/admin/logs/{rid}").json()
+        self.assertIsNotNone(log.get("hit_answer"))
+        self.assertEqual(log["hit_answer"]["answer"], "A")
+
+    def test_vision_model_filter(self):
+        from app.llm.client import is_vision_model
+        self.assertTrue(is_vision_model("qwen2.5vl:7b"))
+        self.assertTrue(is_vision_model("gpt-4o"))
+        self.assertFalse(is_vision_model("qwen2.5:7b"))
+        self.assertFalse(is_vision_model("llama3"))
+
+    def test_db_user_version(self):
+        import sqlite3
+        # tmp_env 设置的库已迁移
+        from app.store import db as dbmod
+        conn = dbmod.get_conn()
+        ver = conn.execute("PRAGMA user_version").fetchone()[0]
+        self.assertGreaterEqual(ver, 1)
+
+
 if __name__ == "__main__":
     verbosity = 2 if "-v" in sys.argv else 1
     loader = unittest.TestLoader()

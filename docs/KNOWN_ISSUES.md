@@ -1,5 +1,26 @@
 # 已知问题与改进方案（Known Issues & Roadmap）
 
+> 版本：v0.2.0
+> 本文档记录项目的**已知问题**及对应**改进方案**。
+
+## ✅ v0.2.0 已完成（原 0.2.0 计划项全部落地）
+- **T1** 托盘配置输入框错位 → 改 Grid 对齐布局
+- **T2** 托盘 API Key → 已具备（密码框）
+- **T3/W1** 测试连接 → `POST /api/admin/llm/test`
+- **T4/W2** 提供商配置档案（命名/编辑/删除/切换）→ `llm_profiles`
+- **T5/W3** 获取模型列表 → `GET /api/admin/llm/models`
+- **W4** 启停按钮整合两态 → Dashboard 单一两态按钮
+- **W5** 截断补 `[…]` + 详情页 → `question.html`
+- **L1** 日志筛选/导出 → `/api/admin/logs` 筛选 + `/logs/export`
+- **D1** 数据结构化 → `question_types` + `answers.answer_json` + `options`（含迁移）
+- **E1** 导出数据 → `/api/admin/export`（csv/json/xlsx）
+- **O1** OCS 识图配置 → `export_ocs_config.py` 默认导出 v2
+
+> 下方为各项原始方案记录（保留作设计依据）。
+
+---
+
+原始方案记录（v0.1.0 起草）：
 > 版本：v0.1.0
 > 本文档记录当前版本（0.1.0）的**已知问题**及对应的**改进方案**，作为 0.2.0 迭代依据。
 > **注：本版本只记录方案，未实现**；标记「目标版本」的功能在后续版本实施。

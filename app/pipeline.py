@@ -138,7 +138,7 @@ def handle_search(
             if settings.enable_vision and (images or vision.extract_image_urls(title, opts)):
                 vst = time.perf_counter()
                 try:
-                    vision_text, vusage, urls = vision.recognize(title, opts)
+                    vision_text, vusage, urls = vision.recognize(title, opts, images)
                     prompt_tokens += vusage.get("prompt_tokens", 0)
                     completion_tokens += vusage.get("completion_tokens", 0)
                     rec.step(

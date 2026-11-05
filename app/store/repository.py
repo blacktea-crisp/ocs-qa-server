@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime, timezone
 
-from app.store.db import get_conn
+from app.store.db import get_conn, infer_answer_json
 from app.store.models import Answer, AnswerSource, AnswerStatus
 
 # ---------- 归一化 ----------
@@ -58,6 +58,17 @@ def upsert_question(qkey: str, question_raw: str, question_norm: str, qtype: str
              options_json=excluded.options_json""",
         (qkey, question_raw, question_norm, qtype, json.dumps(options, ensure_ascii=False), _now()),
     )
+    # 同步 options 独立表（先清后插，保持与 options_json 一致）
+    conn.execute("DELETE FROM options WHERE qkey=?", (qkey,))
+    for i, o in enumerate(options or []):
+        text = str(o)
+        is_img = 1 if ("http://" in text or "https://" in text) and any(
+            text.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")
+        ) else 0
+        conn.execute(
+            "INSERT INTO options(qkey,idx,content,is_image) VALUES(?,?,?,?)",
+            (qkey, i, text, is_img),
+        )
     conn.commit()
 
 
@@ -86,6 +97,7 @@ def count_questions() -> int:
 
 def delete_question(qkey: str) -> None:
     conn = get_conn()
+    conn.execute("DELETE FROM options WHERE qkey=?", (qkey,))
     conn.execute("DELETE FROM answers WHERE qkey=?", (qkey,))
     conn.execute("DELETE FROM questions WHERE qkey=?", (qkey,))
     conn.commit()
@@ -96,11 +108,16 @@ def delete_question(qkey: str) -> None:
 def _row_to_answer(row) -> Answer:
     d = dict(row)
     cands = json.loads(d.get("candidates_json") or "[]")
+    try:
+        aj = json.loads(d.get("answer_json") or "{}")
+    except Exception:
+        aj = {}
     return Answer(
         id=d["id"], qkey=d["qkey"], answer=d["answer"],
         source=AnswerSource(d["source"]), status=AnswerStatus(d["status"]),
         confidence=d["confidence"], hit_count=d["hit_count"],
         verified_at=d["verified_at"], created_at=d["created_at"], candidates=cands,
+        answer_json=aj,
     )
 
 
@@ -119,13 +136,19 @@ def upsert_answer(
     """写入答案。同 qkey + 同 answer 文本则更新；否则新增。
     与已有 trusted 冲突时把新答案标记为 conflict（并存不覆盖）。"""
     conn = get_conn()
+    # 取题型以生成结构化答案
+    qrow = conn.execute("SELECT type FROM questions WHERE qkey=?", (qkey,)).fetchone()
+    qtype = qrow["type"] if qrow else "unknown"
+    aj = infer_answer_json(answer, qtype)
+    aj_json = json.dumps(aj, ensure_ascii=False)
+
     existing = list_answers(qkey)
     # 已有相同 answer 文本
     same = next((a for a in existing if a.answer.strip() == (answer or "").strip()), None)
     if same:
         conn.execute(
-            "UPDATE answers SET confidence=?, source=?, status=? WHERE id=?",
-            (max(confidence, same.confidence), source.value, status.value, same.id),
+            "UPDATE answers SET confidence=?, source=?, status=?, answer_json=? WHERE id=?",
+            (max(confidence, same.confidence), source.value, status.value, aj_json, same.id),
         )
         conn.commit()
         return same.id
@@ -136,9 +159,9 @@ def upsert_answer(
         status = AnswerStatus.CONFLICT
 
     cur = conn.execute(
-        """INSERT INTO answers(qkey, answer, source, status, confidence, hit_count, verified_at, candidates_json, created_at)
-           VALUES(?,?,?,?,?,0,NULL,'[]',?)""",
-        (qkey, answer, source.value, status.value, confidence, _now()),
+        """INSERT INTO answers(qkey, answer, source, status, confidence, hit_count, verified_at, candidates_json, answer_json, created_at)
+           VALUES(?,?,?,?,?,0,NULL,'[]',?,?)""",
+        (qkey, answer, source.value, status.value, confidence, aj_json, _now()),
     )
     conn.commit()
     return cur.lastrowid
@@ -253,3 +276,142 @@ def set_setting(key: str, value: str) -> None:
 def all_settings() -> dict:
     rows = get_conn().execute("SELECT key,value FROM settings_kv").fetchall()
     return {r["key"]: r["value"] for r in rows}
+
+
+# ---------- question_types ----------
+
+def list_question_types() -> list[dict]:
+    rows = get_conn().execute("SELECT code,name,answer_schema,enabled FROM question_types").fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------- options ----------
+
+def get_options(qkey: str) -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT idx,content,is_image FROM options WHERE qkey=? ORDER BY idx", (qkey,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------- llm_profiles（提供商配置档案）----------
+
+_PROFILE_FIELDS = ("name", "provider", "base_url", "api_key", "model", "vision_model")
+
+
+def list_profiles() -> list[dict]:
+    rows = get_conn().execute(
+        "SELECT id,name,provider,base_url,api_key,model,vision_model,is_active,created_at FROM llm_profiles ORDER BY id"
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["api_key_set"] = bool(d.get("api_key"))
+        d.pop("api_key", None)  # 列表不回显明文
+        out.append(d)
+    return out
+
+
+def get_profile(pid: int, with_key: bool = True) -> dict | None:
+    row = get_conn().execute("SELECT * FROM llm_profiles WHERE id=?", (pid,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    if not with_key:
+        d.pop("api_key", None)
+    return d
+
+
+def get_active_profile() -> dict | None:
+    row = get_conn().execute("SELECT * FROM llm_profiles WHERE is_active=1 LIMIT 1").fetchone()
+    return dict(row) if row else None
+
+
+def create_profile(name: str, provider: str, base_url: str, api_key: str, model: str, vision_model: str) -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO llm_profiles(name,provider,base_url,api_key,model,vision_model,is_active,created_at) "
+        "VALUES(?,?,?,?,?,?,0,?)",
+        (name, provider, base_url, api_key, model, vision_model, _now()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def update_profile(pid: int, fields: dict) -> None:
+    sets, vals = [], []
+    for k in _PROFILE_FIELDS:
+        if k in fields and fields[k] is not None:
+            # api_key 传空字符串->不覆盖（与前端"留空不改"一致）；其它字段允许空
+            if k == "api_key" and fields[k] == "":
+                continue
+            sets.append(f"{k}=?")
+            vals.append(fields[k])
+    if not sets:
+        return
+    vals.append(pid)
+    conn = get_conn()
+    conn.execute(f"UPDATE llm_profiles SET {','.join(sets)} WHERE id=?", vals)
+    conn.commit()
+
+
+def delete_profile(pid: int) -> None:
+    conn = get_conn()
+    conn.execute("DELETE FROM llm_profiles WHERE id=?", (pid,))
+    conn.commit()
+
+
+def activate_profile(pid: int) -> None:
+    conn = get_conn()
+    conn.execute("UPDATE llm_profiles SET is_active=0")
+    conn.execute("UPDATE llm_profiles SET is_active=1 WHERE id=?", (pid,))
+    conn.commit()
+
+
+# ---------- 导出 ----------
+
+def export_rows(qtype: str | None = None, date_from: str | None = None, date_to: str | None = None,
+                include_candidates: bool = False) -> list[dict]:
+    """导出题目+选项+答案的扁平行。"""
+    conn = get_conn()
+    sql = "SELECT qkey, question_raw, question_norm, type, options_json, created_at FROM questions WHERE 1=1"
+    params: list = []
+    if qtype:
+        sql += " AND type=?"
+        params.append(qtype)
+    if date_from:
+        sql += " AND created_at>=?"
+        params.append(date_from)
+    if date_to:
+        sql += " AND created_at<=?"
+        params.append(date_to)
+    sql += " ORDER BY created_at DESC"
+    qrows = conn.execute(sql, params).fetchall()
+    rows = []
+    for q in qrows:
+        opts = json.loads(q["options_json"] or "[]")
+        answers = list_answers(q["qkey"])
+        for a in answers:
+            if not include_candidates and a.status == AnswerStatus.CANDIDATE:
+                continue
+            rows.append({
+                "qkey": q["qkey"],
+                "question": q["question_raw"],
+                "type": q["type"],
+                "options": " | ".join(str(o) for o in opts),
+                "answer": a.answer,
+                "answer_status": a.status.value,
+                "source": a.source.value,
+                "confidence": a.confidence,
+                "hit_count": a.hit_count,
+                "answer_json": json.dumps(a.answer_json, ensure_ascii=False),
+                "created_at": q["created_at"],
+            })
+        if not answers:
+            rows.append({
+                "qkey": q["qkey"], "question": q["question_raw"], "type": q["type"],
+                "options": " | ".join(str(o) for o in opts), "answer": "",
+                "answer_status": "", "source": "", "confidence": 0, "hit_count": 0,
+                "answer_json": "", "created_at": q["created_at"],
+            })
+    return rows

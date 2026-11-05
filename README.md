@@ -1,12 +1,12 @@
 # OCS 自建题库后端系统
 
-![version](https://img.shields.io/badge/version-0.2.0-blue) ![python](https://img.shields.io/badge/python-3.11+-green) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
+![version](https://img.shields.io/badge/version-0.2.1-blue) ![python](https://img.shields.io/badge/python-3.11+-green) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
 面向 OCS 网课助手的**自建题库后端**：OCS 发来题目 → 先查题库 → 未命中调大模型（文本/识图）作答 → **每道题都入库** → **每步操作都记录** → 按 OCS `AnswererWrapper` 契约返回答案。附带**独立 Web 管理台**（Dashboard / 题库 / 日志 / 设置 / 服务启停）与 **Windows 系统托盘程序**（本机启停 + 配置）。
 
 技术栈：Python 3.11 + FastAPI + SQLite；前端零构建原生 HTML/JS；托盘纯标准库。
 
-> 当前版本 **v0.2.0**。已知问题与路线图见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)，变更见 [CHANGELOG.md](CHANGELOG.md)。
+> 当前版本 **v0.2.1**。已知问题与路线图见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)，变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 文档索引
 - [架构说明](docs/ARCHITECTURE.md) · [OCS 接入指南](docs/OCS_INTEGRATION.md)

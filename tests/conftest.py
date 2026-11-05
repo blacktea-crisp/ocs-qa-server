@@ -85,9 +85,9 @@ def mock_vision(monkeypatch):
     """mock 识图：返回固定文字，记录调用。"""
     calls = []
 
-    def fake_recognize(title, options):
+    def fake_recognize(title, options, images=None):
         urls = ["http://example.com/a.png"]
-        calls.append({"title": title, "options": options})
+        calls.append({"title": title, "options": options, "images": images})
         return "图片识别：这是一个测试图片", {"prompt_tokens": 20, "completion_tokens": 8, "model": "mock-vl"}, urls
 
     from app.llm import vision

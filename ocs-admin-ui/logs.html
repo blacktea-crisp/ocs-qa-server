@@ -78,7 +78,6 @@
         .then(blob => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `logs.${fmt}`; a.click(); })
         .catch(e => alert("导出失败: " + e.message));
     }
-    }
 
     async function showDetail(rid) {
       const panel = document.getElementById("detail-panel");
@@ -91,6 +90,7 @@
           <div><b>题目：</b>${esc(log.title || "")} &nbsp; <b>类型：</b>${log.type}</div>
           <div><b>最终答案：</b>${esc(log.final_answer || "-")} &nbsp; ${statusTag(log.answer_status)}
             &nbsp; <b>来源：</b>${log.store_hit ? "题库命中" : "大模型"} &nbsp; <b>信任模式：</b>${log.trust_mode}</div>
+          ${log.hit_answer ? `<div><b>命中题库：</b>答案ID ${log.hit_answer.id} · <span class="mono">${esc(log.hit_answer.answer)}</span> · ${statusTag(log.hit_answer.status)} · 来源${log.hit_answer.source} · 历史命中 ${log.hit_answer.hit_count} 次</div>` : ""}
           <div class="muted">耗时 ${log.latency_ms}ms · 提示token ${log.prompt_tokens} · 完成token ${log.completion_tokens}${log.error ? " · 错误: " + esc(log.error) : ""}</div>
         </div>`;
       const steps = (log.steps || []).map(s => `

@@ -8,6 +8,19 @@
 <body>
   <div id="top"></div>
   <div class="container">
+    <div class="row">
+      <input id="f-q" placeholder="按题目搜索…" style="width:200px" />
+      <label class="muted"><input type="checkbox" id="f-err" /> 只看错误</label>
+      <select id="f-hit" style="width:140px">
+        <option value="">全部来源</option>
+        <option value="1">题库命中</option>
+        <option value="0">走大模型</option>
+      </select>
+      <button class="sm" onclick="load(0)">筛选</button>
+      <span class="spacer" style="flex:1"></span>
+      <select id="log-export-fmt" style="width:90px"><option value="csv">CSV</option><option value="json">JSON</option></select>
+      <button class="ghost sm" onclick="exportLogs()">导出日志</button>
+    </div>
     <div class="panel">
       <h2>请求日志（请求级概要）</h2>
       <div class="body">
@@ -35,8 +48,15 @@
 
     async function load(off) {
       offset = Math.max(0, off || 0);
+      const q = document.getElementById("f-q").value.trim();
+      const err = document.getElementById("f-err").checked;
+      const hit = document.getElementById("f-hit").value;
+      const params = new URLSearchParams({ limit: LIMIT, offset });
+      if (q) params.set("q", q);
+      if (err) params.set("only_errors", "true");
+      if (hit !== "") params.set("store_hit", hit);
       let d;
-      try { d = await api(`/api/admin/logs?limit=${LIMIT}&offset=${offset}`); }
+      try { d = await api(`/api/admin/logs?` + params.toString()); }
       catch (e) { document.querySelector("#list tbody").innerHTML = `<tr><td colspan="8" class="muted">加载失败: ${e.message}</td></tr>`; return; }
       document.querySelector("#list tbody").innerHTML = (d.items || []).map(r => `
         <tr>
@@ -49,6 +69,15 @@
           <td>${r.error ? `<span class="tag conflict">${esc(r.error).slice(0, 30)}</span>` : ""}</td>
           <td><a class="mono" href="#" onclick='showDetail("${r.request_id}");return false'>${(r.request_id || "").slice(0, 10)}</a></td>
         </tr>`).join("") || `<tr><td colspan="8" class="muted">暂无日志</td></tr>`;
+    }
+
+    function exportLogs() {
+      const fmt = document.getElementById("log-export-fmt").value;
+      fetch(`${CONFIG.API_BASE}/api/admin/logs/export?format=${fmt}&_=${Date.now()}`, { headers: { "X-Admin-Token": CONFIG.TOKEN } })
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+        .then(blob => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `logs.${fmt}`; a.click(); })
+        .catch(e => alert("导出失败: " + e.message));
+    }
     }
 
     async function showDetail(rid) {

@@ -162,6 +162,16 @@ def get_log(request_id: str, x_admin_token: str | None = Header(default=None)):
     if not log:
         raise HTTPException(status_code=404, detail="日志不存在")
     log["steps"] = logging_store.get_steps(request_id)
+    # 命中信息：若命中题库，附带命中的答案记录
+    log["hit_answer"] = None
+    aid = log.get("store_answer_id")
+    if aid:
+        a = repo.get_answer(int(aid))
+        if a:
+            log["hit_answer"] = {
+                "id": a.id, "answer": a.answer, "status": a.status.value,
+                "source": a.source.value, "hit_count": a.hit_count, "confidence": a.confidence,
+            }
     return log
 
 
@@ -392,3 +402,28 @@ def question_detail(qkey: str, x_admin_token: str | None = Header(default=None))
     logs = [l for l in logging_store.list_logs(limit=200) if (l.get("title") or "").strip() == (q["question_raw"] or "").strip()]
     q["logs"] = logs[:20]
     return q
+
+
+# ---------- OCS 配置生成（网页获取/显示）----------
+
+@router.get("/ocs-config")
+def ocs_config(
+    version: str = Query("v2", pattern="^(v1|v2)$"),
+    host: str = Query("127.0.0.1"),
+    port: int = Query(0),
+    trust: str = Query("prefer_trusted", pattern="^(trusted_only|prefer_trusted|allow_candidate)$"),
+    x_admin_token: str | None = Header(default=None),
+):
+    require_admin(x_admin_token)
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent.parent
+    if str(root) not in _sys.path:
+        _sys.path.insert(0, str(root))
+    from scripts.export_ocs_config import build_config
+
+    p = port or int(__import__("app.config", fromlist=["get_settings"]).get_settings().port)
+    cfg = build_config(host, p, trust, version)
+    return {"ok": True, "version": version, "config": cfg,
+            "text": json.dumps(cfg, ensure_ascii=False, indent=2)}

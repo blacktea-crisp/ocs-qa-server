@@ -14,7 +14,7 @@
     <div class="panel">
       <h2>最近请求趋势（最近 50 次，柱高=延迟，绿=命中题库）</h2>
       <div class="body">
-        <svg id="spark" class="spark" width="100%" height="80" preserveAspectRatio="none"></svg>
+        <svg id="spark" class="spark" width="100%" height="90" viewBox="0 0 1000 90"></svg>
         <div class="hint">绿柱=题库命中；蓝柱=走大模型；高度代表耗时(ms)，越高越慢。</div>
       </div>
     </div>
@@ -91,18 +91,32 @@
 
     function drawSpark(items) {
       const svg = document.getElementById("spark");
-      const W = svg.clientWidth || 1000, H = 80;
-      const arr = items.slice().reverse();
-      if (!arr.length) { svg.innerHTML = `<text x="10" y="45" fill="#8fa3c4">暂无数据</text>`; return; }
+      const W = 1000, H = 90; // viewBox 固定坐标系
+      const arr = items.slice().reverse(); // 旧->新
+      if (!arr.length) { svg.innerHTML = `<text x="10" y="40" fill="#8fa3c4">暂无数据</text>`; return; }
+      const chartH = H - 22; // 底部留 22px 给时间轴
       const max = Math.max(...arr.map(i => i.latency_ms || 1), 1);
       const bw = W / arr.length;
-      let rects = "";
+      let parts = "";
+      // 柱子
       arr.forEach((it, i) => {
-        const h = Math.max(2, ((it.latency_ms || 1) / max) * (H - 8));
+        const h = Math.max(2, ((it.latency_ms || 1) / max) * (chartH - 6));
         const color = it.store_hit ? "#35c07a" : "#4f8cff";
-        rects += `<rect x="${i * bw + 1}" y="${H - h}" width="${Math.max(1, bw - 2)}" height="${h}" fill="${color}" opacity="0.85"/>`;
+        parts += `<rect x="${(i * bw + 1).toFixed(1)}" y="${(chartH - h).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" opacity="0.85"/>`;
       });
-      svg.innerHTML = rects;
+      // 时间轴基线
+      parts += `<line x1="0" y1="${chartH}" x2="${W}" y2="${chartH}" stroke="#2a3850" stroke-width="1"/>`;
+      // 时间刻度：首、中、末（转成 HH:MM:SS）
+      const fmtClock = (iso) => { try { return new Date(iso).toLocaleTimeString("zh-CN", { hour12: false }); } catch { return ""; } };
+      const idxs = arr.length > 1 ? [0, Math.floor(arr.length / 2), arr.length - 1] : [0];
+      idxs.forEach((idx) => {
+        const x = Math.min(W - 4, Math.max(4, idx * bw + bw / 2));
+        const anchor = idx === 0 ? "start" : (idx === arr.length - 1 ? "end" : "middle");
+        parts += `<text x="${x.toFixed(1)}" y="${H - 6}" fill="#8fa3c4" font-size="10" text-anchor="${anchor}">${fmtClock(arr[idx].created_at)}</text>`;
+      });
+      // 时间说明
+      parts += `<text x="4" y="12" fill="#8fa3c4" font-size="10">最近 ${arr.length} 次请求（时间由左至右）</text>`;
+      svg.innerHTML = parts;
     }
 
     function escapeHtml(s) {

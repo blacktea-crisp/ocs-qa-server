@@ -13,6 +13,8 @@
       <button class="sm" onclick="load(0)">搜索</button>
       <span class="spacer" style="flex:1"></span>
       <span class="muted" id="total"></span>
+      <select id="export-fmt" style="width:90px"><option value="csv">CSV</option><option value="xlsx">Excel</option><option value="json">JSON</option></select>
+      <button class="ghost sm" onclick="exportData()">导出数据</button>
     </div>
 
     <div class="panel">
@@ -52,18 +54,39 @@
       const tbody = document.querySelector("#list tbody");
       tbody.innerHTML = (d.items || []).map(it => {
         const answers = (it.answers || []).map(a =>
-          `${statusTag(a.status)} <span class="mono">${escapeHtml(a.answer).slice(0, 24)}</span>`).join("<br>") || `<span class="muted">无</span>`;
+          `${statusTag(a.status)} <span class="mono">${truncate(escapeHtml(a.answer), 24)}</span>`).join("<br>") || `<span class="muted">无</span>`;
         return `<tr>
-          <td>${escapeHtml(it.question_raw).slice(0, 60)}<div class="hint mono">${it.qkey.slice(0, 12)}…</div></td>
+          <td>${truncate(escapeHtml(it.question_raw), 60)}<div class="hint mono">${it.qkey.slice(0, 12)}…</div></td>
           <td class="muted">${it.type}</td>
-          <td class="muted">${(it.options || []).map(o => escapeHtml(o)).join(" / ").slice(0, 40)}</td>
+          <td class="muted">${truncate((it.options || []).map(o => escapeHtml(o)).join(" / "), 40)}</td>
           <td>${answers}</td>
           <td>
-            <button class="ghost sm" onclick='showDetail("${it.qkey}")'>管理</button>
+            <a class="sm" href="question.html?id=${it.qkey}" style="padding:4px 8px;border:1px solid var(--line);border-radius:6px">详情/管理</a>
             <button class="red sm" onclick='delQ("${it.qkey}")'>删</button>
           </td>
         </tr>`;
       }).join("") || `<tr><td colspan="5" class="muted">暂无题目（可先让 OCS 请求几道题，或运行 seed 脚本）</td></tr>`;
+    }
+
+    // 截断工具：超长补 […]（明确标注被截断）
+    function truncate(text, n) {
+      const s = String(text == null ? "" : text);
+      return s.length > n ? s.slice(0, n) + "[…]" : s;
+    }
+
+    function exportData() {
+      const fmt = document.getElementById("export-fmt").value;
+      const url = `${CONFIG.API_BASE}/api/admin/export?format=${fmt}&include_candidates=true&_=${Date.now()}`;
+      // 通过 fetch 带 token 下载
+      fetch(url, { headers: { "X-Admin-Token": CONFIG.TOKEN } })
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+        .then(blob => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `qa_export.${fmt}`;
+          a.click();
+        })
+        .catch(e => alert("导出失败: " + e.message));
     }
 
     async function showDetail(qkey) {

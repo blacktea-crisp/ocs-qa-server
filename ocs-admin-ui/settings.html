@@ -59,6 +59,7 @@
         <div class="row">
           <label style="width:100px">视觉模型</label>
           <input id="p_vision" style="width:220px" placeholder="qwen2.5vl:7b" />
+          <select id="vision-list" style="width:200px;display:none" onchange="pickVisionModel()"></select>
         </div>
         <div class="row">
           <label style="width:100px">API Key</label>
@@ -98,6 +99,28 @@
         </div>
         <button onclick="saveSettings()">保存答题设置</button>
         <span id="msg" class="muted" style="margin-left:12px"></span>
+      </div>
+    </div>
+
+    <!-- 获取 OCS 配置 -->
+    <div class="panel">
+      <h2>获取 OCS 题库配置（粘贴到 OCS 脚本）</h2>
+      <div class="body">
+        <div class="row">
+          <label style="width:100px">版本</label>
+          <select id="ocs-version" style="width:180px">
+            <option value="v2">v2（含识图，推荐）</option>
+            <option value="v1">v1（纯文本）</option>
+          </select>
+          <label style="width:60px">Host</label>
+          <input id="ocs-host" style="width:160px" placeholder="127.0.0.1 或服务器IP" />
+          <label style="width:50px">端口</label>
+          <input id="ocs-port" style="width:80px" placeholder="8000" />
+          <button class="sm" onclick="genOcsConfig()">生成配置</button>
+          <button class="ghost sm" onclick="copyOcsConfig()">复制</button>
+        </div>
+        <div class="hint">跨机使用请把 Host 改为服务器局域网/公网 IP；OCS 需在 @connect 放行该域名。</div>
+        <pre id="ocs-config-out" style="max-height:320px">点「生成配置」显示…</pre>
       </div>
     </div>
   </div>
@@ -201,12 +224,22 @@
         const sel = document.getElementById("model-list");
         sel.innerHTML = r.models.map(m => `<option value="${m}">${m}</option>`).join("");
         sel.style.display = "inline-block";
-        msgP(`共 ${r.models.length} 个模型`);
+        // 视觉模型候选（按名过滤）
+        const vsel = document.getElementById("vision-list");
+        if (vsel) {
+          vsel.innerHTML = (r.vision_models || []).map(m => `<option value="${m}">${m}</option>`).join("");
+          vsel.style.display = (r.vision_models && r.vision_models.length) ? "inline-block" : "none";
+        }
+        msgP(`共 ${r.models.length} 个模型（其中视觉 ${(r.vision_models || []).length} 个）`);
       } catch (e) { msgP("获取失败: " + e.message, true); }
     }
     function pickModel() {
       const m = document.getElementById("model-list").value;
       if (m) document.getElementById("p_model").value = m;
+    }
+    function pickVisionModel() {
+      const m = document.getElementById("vision-list").value;
+      if (m) document.getElementById("p_vision").value = m;
     }
 
     // ---- 测试连接 ----
@@ -251,6 +284,39 @@
         document.getElementById("msg").innerHTML = `<span class="red">保存失败: ${e.message}</span>`;
       }
     }
+
+    // ---- OCS 配置生成 ----
+    async function genOcsConfig() {
+      const version = document.getElementById("ocs-version").value;
+      let host = document.getElementById("ocs-host").value.trim();
+      const port = document.getElementById("ocs-port").value.trim();
+      if (!host) host = "127.0.0.1";
+      const q = new URLSearchParams({ version, host });
+      if (port) q.set("port", port);
+      try {
+        const r = await api("/api/admin/ocs-config?" + q.toString());
+        document.getElementById("ocs-config-out").textContent = r.text;
+      } catch (e) {
+        document.getElementById("ocs-config-out").textContent = "生成失败: " + e.message;
+      }
+    }
+    function copyOcsConfig() {
+      const txt = document.getElementById("ocs-config-out").textContent;
+      navigator.clipboard.writeText(txt).then(
+        () => (document.getElementById("ocs-config-out").style.borderColor = "#35c07a"),
+        () => alert("复制失败，请手动选择复制")
+      );
+      setTimeout(() => (document.getElementById("ocs-config-out").style.borderColor = ""), 1500);
+    }
+
+    // 默认 host/port 预填
+    (function () {
+      try {
+        const u = new URL(CONFIG.API_BASE);
+        document.getElementById("ocs-host").value = u.hostname;
+        document.getElementById("ocs-port").value = u.port || "8000";
+      } catch (e) { /* */ }
+    })();
 
     loadSettings();
     loadProfiles();

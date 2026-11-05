@@ -106,10 +106,21 @@ def get_steps(request_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def list_logs(limit: int = 100, offset: int = 0) -> list[dict]:
-    rows = get_conn().execute(
-        "SELECT * FROM request_logs ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset)
-    ).fetchall()
+def list_logs(limit: int = 100, offset: int = 0, only_errors: bool = False,
+              store_hit: bool | None = None, q: str | None = None) -> list[dict]:
+    sql = "SELECT * FROM request_logs WHERE 1=1"
+    params: list = []
+    if only_errors:
+        sql += " AND error IS NOT NULL AND error!=''"
+    if store_hit is not None:
+        sql += " AND store_hit=?"
+        params.append(1 if store_hit else 0)
+    if q:
+        sql += " AND title LIKE ?"
+        params.append(f"%{q}%")
+    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params += [limit, offset]
+    rows = get_conn().execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 

@@ -49,6 +49,7 @@ class Answer:
     verified_at: str | None
     created_at: str
     candidates: list[dict] = field(default_factory=list)  # [{answer,source,status,confidence,ts}]
+    answer_json: dict = field(default_factory=dict)  # 结构化答案
 
 
 @dataclass

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>题目详情 - OCS 题库管理台</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="top"></div>
+  <div class="container">
+    <div class="row">
+      <a href="questions.html" class="ghost sm" style="padding:6px 12px;border:1px solid var(--line);border-radius:7px">← 返回题库</a>
+      <span class="spacer" style="flex:1"></span>
+    </div>
+
+    <div id="content"><div class="muted" style="padding:20px">加载中…</div></div>
+  </div>
+
+  <script src="api.js"></script>
+  <script>
+    document.getElementById("top").replaceWith(renderTopbar("questions.html"));
+    const QKEY = new URLSearchParams(location.search).get("id");
+    let DATA = null;
+
+    async function loadDetail() {
+      if (!QKEY) { document.getElementById("content").innerHTML = `<div class="muted">缺少题目 id</div>`; return; }
+      try { DATA = await api(`/api/admin/questions/${QKEY}/detail`); }
+      catch (e) { document.getElementById("content").innerHTML = `<div class="red">加载失败: ${e.message}</div>`; return; }
+      render();
+    }
+
+    function render() {
+      const d = DATA;
+      const opts = (d.options || []).map((o, i) => `<div class="step ok" style="margin-bottom:6px">${String.fromCharCode(65 + i)}. ${esc(o)}</div>`).join("") || `<span class="muted">无选项</span>`;
+      const answers = (d.answers || []).map(a => `
+        <tr>
+          <td>${esc(a.answer)}</td>
+          <td>${statusTag(a.status)}</td>
+          <td>${statusTag(a.source === "store" ? "store" : "llm")}</td>
+          <td class="muted">${a.confidence}</td>
+          <td class="muted">${a.hit_count}</td>
+          <td class="mono hint">${esc(JSON.stringify(a.answer_json))}</td>
+          <td>
+            ${a.status !== "trusted" ? `<button class="green sm" onclick="promote(${a.id})">设为可信</button>` : ""}
+            ${a.status === "trusted" ? `<button class="ghost sm" onclick="demote(${a.id})">降为候选</button>` : ""}
+          </td>
+        </tr>`).join("") || `<tr><td colspan="7" class="muted">无答案</td></tr>`;
+      const logs = (d.logs || []).map(l => `
+        <tr>
+          <td class="muted">${fmtTime(l.created_at)}</td>
+          <td>${l.store_hit ? statusTag("store") : statusTag("llm")}</td>
+          <td>${statusTag(l.answer_status)}</td>
+          <td>${esc((l.final_answer || "").slice(0, 40))}</td>
+          <td class="muted">${l.latency_ms}ms</td>
+          <td><a class="mono" href="logs.html?id=${l.request_id}">${(l.request_id || "").slice(0, 10)}</a></td>
+        </tr>`).join("") || `<tr><td colspan="6" class="muted">暂无相关日志</td></tr>`;
+
+      document.getElementById("content").innerHTML = `
+        <div class="panel">
+          <h2>题目详情</h2>
+          <div class="body">
+            <div class="row"><b>题干：</b></div>
+            <div style="margin-bottom:12px;line-height:1.6">${esc(d.question_raw)}</div>
+            <div class="row"><b>题型：</b><span class="tag store">${d.type}</span>
+              <span class="muted mono">qkey: ${d.qkey}</span></div>
+            <div class="row" style="margin-top:10px"><b>选项：</b></div>
+            <div>${opts}</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>答案候选</h2>
+          <div class="body">
+            <table><thead><tr><th>答案</th><th>状态</th><th>来源</th><th>置信度</th><th>命中</th><th>结构化</th><th>操作</th></tr></thead>
+            <tbody>${answers}</tbody></table>
+            <div class="row" style="margin-top:12px">
+              <input id="new-ans" placeholder="手动添加候选答案…" style="width:320px" />
+              <label class="muted"><input type="checkbox" id="new-trusted" /> 直接设为可信</label>
+              <button class="sm" onclick="addCandidate()">添加</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>相关请求日志</h2>
+          <div class="body">
+            <table><thead><tr><th>时间</th><th>来源</th><th>状态</th><th>最终答案</th><th>耗时</th><th>请求ID</th></tr></thead>
+            <tbody>${logs}</tbody></table>
+          </div>
+        </div>
+      `;
+    }
+
+    async function promote(id) { await api(`/api/admin/answers/${id}/promote`, { method: "POST" }); loadDetail(); }
+    async function demote(id) { await api(`/api/admin/answers/${id}/demote`, { method: "POST" }); loadDetail(); }
+    async function addCandidate() {
+      const ans = document.getElementById("new-ans").value.trim();
+      if (!ans) return;
+      const trusted = document.getElementById("new-trusted").checked;
+      await api(`/api/admin/answers/${QKEY}/candidate`, { method: "POST", body: JSON.stringify({ answer: ans, make_trusted: trusted, confidence: 1.0 }) });
+      loadDetail();
+    }
+    function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+    loadDetail();
+  </script>
+</body>
+</html>

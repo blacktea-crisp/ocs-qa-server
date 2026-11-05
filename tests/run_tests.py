@@ -82,8 +82,8 @@ class BaseCase(unittest.TestCase):
         # mock vision
         self.vision_calls = []
 
-        def fake_recognize(title, options):
-            self.vision_calls.append({"title": title, "options": options})
+        def fake_recognize(title, options, images=None):
+            self.vision_calls.append({"title": title, "options": options, "images": images})
             return "图片识别内容", {"prompt_tokens": 20, "completion_tokens": 8, "model": "mock-vl"}, ["http://example.com/a.png"]
 
         self._p2 = mock.patch("app.llm.vision.recognize", fake_recognize)
@@ -227,7 +227,7 @@ class TestVision(BaseCase):
         self.assertEqual(len(self.vision_calls), 0)
 
     def test_failure_degrades(self):
-        def boom(title, options):
+        def boom(title, options, images=None):
             raise RuntimeError("识图服务不可用")
 
         with mock.patch("app.llm.vision.recognize", boom):
@@ -321,6 +321,100 @@ class TestAdminAPI(BaseCase):
         self.assertTrue(r.json()["ok"])
         g = self.client.get("/api/admin/settings").json()
         self.assertEqual(g["effective"]["default_answer_trust"], "allow_candidate")
+
+
+class TestProfiles(BaseCase):
+    def test_crud_and_activate(self):
+        r = self.client.post("/api/admin/llm/profiles", json={
+            "name": "OpenAI", "provider": "openai", "base_url": "https://api.openai.com/v1",
+            "api_key": "sk-test", "model": "gpt-4o", "vision_model": "gpt-4o", "activate": True})
+        pid = r.json()["id"]
+        items = self.client.get("/api/admin/llm/profiles").json()["items"]
+        self.assertTrue(any(i["id"] == pid for i in items))
+        self.assertNotIn("api_key", items[0])
+        self.assertTrue(any(i["is_active"] == 1 for i in items))
+        from app.config import effective_llm
+        eff = effective_llm()
+        self.assertEqual(eff["model"], "gpt-4o")
+        self.assertEqual(eff["base_url"], "https://api.openai.com/v1")
+        self.assertEqual(eff["profile"], "OpenAI")
+        r2 = self.client.post("/api/admin/llm/profiles", json={
+            "name": "Local", "provider": "ollama", "base_url": "http://127.0.0.1:11434/v1",
+            "api_key": "ollama", "model": "qwen2.5:7b", "vision_model": "qwen2.5vl:7b"})
+        pid2 = r2.json()["id"]
+        self.client.post(f"/api/admin/llm/profiles/{pid2}/activate")
+        self.assertEqual(effective_llm()["model"], "qwen2.5:7b")
+        self.client.put(f"/api/admin/llm/profiles/{pid2}", json={"model": "llama3"})
+        self.assertEqual(effective_llm()["model"], "llama3")
+        self.assertTrue(self.client.delete(f"/api/admin/llm/profiles/{pid2}").json()["ok"])
+
+    def test_empty_key_preserved(self):
+        r = self.client.post("/api/admin/llm/profiles", json={"name": "P1", "base_url": "x", "api_key": "sk-abc", "model": "m"})
+        pid = r.json()["id"]
+        self.client.put(f"/api/admin/llm/profiles/{pid}", json={"api_key": "", "model": "m2"})
+        from app.store import repository as repo
+        self.assertEqual(repo.get_profile(pid)["api_key"], "sk-abc")
+
+
+class TestLLMEndpoints(BaseCase):
+    def test_test_connection_mock(self):
+        with mock.patch("app.llm.client.test_connection", lambda cfg=None: {"ok": True, "model": "x", "latency_ms": 5, "reply": "OK"}):
+            r = self.client.post("/api/admin/llm/test", json={})
+            self.assertTrue(r.json()["ok"])
+
+    def test_list_models_mock(self):
+        with mock.patch("app.llm.client.list_models", lambda cfg=None: {"ok": True, "models": ["m1", "m2"]}):
+            r = self.client.get("/api/admin/llm/models")
+            self.assertEqual(r.json()["models"], ["m1", "m2"])
+
+
+class TestExportAndDetail(BaseCase):
+    def _seed_q(self):
+        from app.store import repository as repo
+        from app.store.models import AnswerSource, AnswerStatus
+        qk = repo.compute_qkey("导出题", ["A", "B", "C"], "multiple")
+        repo.upsert_question(qk, "导出题", repo.normalize("导出题"), "multiple", ["A", "B", "C"])
+        repo.upsert_answer(qk, "A#C", AnswerSource.STORE, AnswerStatus.TRUSTED, 1.0)
+        return qk
+
+    def test_export_csv_json_xlsx(self):
+        self._seed_q()
+        for fmt in ("csv", "json", "xlsx"):
+            r = self.client.get(f"/api/admin/export?format={fmt}&include_candidates=true")
+            self.assertEqual(r.status_code, 200, fmt)
+            self.assertGreater(len(r.content), 0)
+        r = self.client.get("/api/admin/export?format=json")
+        import json as _json
+        data = _json.loads(r.content)
+        self.assertTrue(any(d["question"] == "导出题" for d in data))
+
+    def test_question_detail(self):
+        qk = self._seed_q()
+        r = self.client.get(f"/api/admin/questions/{qk}/detail")
+        self.assertEqual(r.status_code, 200)
+        d = r.json()
+        self.assertEqual(d["question_raw"], "导出题")
+        self.assertEqual(len(d["options"]), 3)
+        self.assertGreaterEqual(len(d["answers"]), 1)
+        self.assertEqual(len(d["options_structured"]), 3)
+
+    def test_answer_json_structured(self):
+        qk = self._seed_q()
+        from app.store import repository as repo
+        a = repo.list_answers(qk)[0]
+        self.assertEqual(a.answer_json.get("option_ids"), ["A", "C"])
+
+
+class TestLogsFilter(BaseCase):
+    def test_filter_and_export(self):
+        self.client.post("/search", json={"title": "日志题A", "type": "single", "options": ["A", "B"]})
+        r = self.client.get("/api/admin/logs?only_errors=true")
+        self.assertEqual(r.status_code, 200)
+        r2 = self.client.get("/api/admin/logs?q=日志题")
+        self.assertGreaterEqual(len(r2.json()["items"]), 1)
+        r3 = self.client.get("/api/admin/logs/export?format=csv")
+        self.assertEqual(r3.status_code, 200)
+        self.assertGreater(len(r3.content), 0)
 
 
 if __name__ == "__main__":

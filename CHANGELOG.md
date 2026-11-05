@@ -2,6 +2,31 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.0] - 2026-11-05
+
+### Added
+- **数据结构化（扩展性）**：
+  - 新增 `question_types` 题型注册表（内置 single/multiple/judgement/completion/unknown，可扩展）。
+  - `answers` 新增 `answer_json` 结构化答案（option_ids / bool / blanks / text）。
+  - 新增 `options` 选项独立表（替代裸 options_json，保留快照兼容）。
+  - 启动幂等迁移：自动回填 options 表、answer_json，旧数据无损。
+- **提供商配置档案**：`llm_profiles` 表 + `/api/admin/llm/profiles` CRUD + activate；一套档案含全部 LLM 参数，可命名/编辑/删除/切换。生效优先级：激活档案 > 单项设置 > .env。
+- **测试连接**：`POST /api/admin/llm/test`（发极简 chat 验证连通）。
+- **获取模型列表**：`GET /api/admin/llm/models`（OpenAI 兼容 /models，失败可手填）。
+- **导出数据**：`GET /api/admin/export`（csv/json/xlsx，可按题型/时间筛选、含候选）。
+- **题库详情页**：`ocs-admin-ui/question.html?id=`，展示完整题干/选项/答案候选/相关日志，可在页内管理；列表截断统一补 `[…]`。
+- **日志增强**：`/api/admin/logs` 支持按题目/仅错误/来源筛选；`/api/admin/logs/export`（csv/json）。
+- **OCS 识图导出**：`export_ocs_config.py` 支持 v1/v2，**默认 v2**（post + ${images}/suggestion_*），解决「当前配置不支持识图」。
+
+### Changed
+- 网页 Dashboard 启停按钮整合为**单一两态按钮**（运行时红「停止」/停止时绿「启动」，重启降为次要）。
+- 托盘配置界面改为 **Grid 对齐布局**（修复输入框错位），并集成提供商档案下拉、获取模型、测试连接。
+- 设置页重构为「提供商配置档案」面板 + 答题设置。
+
+### Fixed
+- 托盘配置输入框错位。
+- 网页设置保存的 LLM 配置不生效（`effective_llm` 统一合并，并支持激活档案）。
+
 ## [0.1.0] - 2026-11-03
 
 首个公开版本。

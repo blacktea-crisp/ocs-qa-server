@@ -2,6 +2,20 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.1] - 2026-11-05
+
+### Added
+- **网页生成 OCS 配置**：设置页「获取 OCS 题库配置」面板，可选 v1/v2、填 host/port，一键生成并复制 JSON（后端 `GET /api/admin/ocs-config`）。
+- **题库命中详情**：日志详情显示命中的题库答案（ID/内容/状态/来源/历史命中次数）——后端 `/logs/{id}` 新增 `hit_answer`。
+- **视觉模型列表**：`/api/admin/llm/models` 返回 `vision_models`（按模型名规则过滤），网页/托盘可分别选用文本模型与视觉模型。
+
+### Fixed
+- **托盘「打开配置」报 `main thread is not in main loop`**：托盘为纯 Win32 消息循环、无 tkinter loop，配置界面改为**独立进程**启动；并修复配置窗口 `var_vision` 变量被 BooleanVar 覆盖导致的崩溃。
+- **日志页无顶部栏、无日志**：`logs.html` 内联脚本存在多余 `}` 导致整页 JS 语法错误，已修复。
+- **题库管理操作列错位**：操作按钮统一尺寸 + 禁止换行。
+- **趋势图无时间轴**：请求趋势图增加时间轴基线与首/中/末时间刻度（viewBox 固定坐标，文字不变形）。
+- **数据库启动偶发 `database is locked`**：连接加 `busy_timeout`；迁移用 `PRAGMA user_version` 标记版本，达标后跳过（减少启动写锁）。
+
 ## [0.2.0] - 2026-11-05
 
 ### Added

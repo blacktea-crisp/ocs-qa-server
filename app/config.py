@@ -61,27 +61,41 @@ def get_settings() -> Settings:
 
 
 def effective_llm() -> dict:
-    """运行期有效的 LLM 配置：settings_kv（网页面板/托盘保存的）优先，回退 .env。
+    """运行期有效的 LLM 配置：激活的 provider 档案 > settings_kv > .env。
 
-    这样在设置页/托盘里改的 base_url/model/api_key 能真正生效（否则只存库不生效）。
+    优先级（0.2.0）：
+      1. 激活的 llm_profiles 档案（若存在且字段非空）
+      2. settings_kv（网页/托盘保存的单项设置）
+      3. .env / 代码默认
     """
     s = get_settings()
+    stored = {}
+    active = None
     try:
         from app.store import repository as repo
 
         stored = repo.all_settings()
+        active = repo.get_active_profile()
     except Exception:
         stored = {}
 
-    def pick(key: str, default):
+    def pick(key: str, default, profile_key: str | None = None):
+        if active:
+            pk = profile_key or key
+            v = active.get(pk)
+            if v not in (None, ""):
+                return v
         v = stored.get(key)
-        return v if v is not None and v != "" else default
+        if v not in (None, ""):
+            return v
+        return default
 
     return {
-        "provider": pick("llm_provider", s.llm_provider),
-        "base_url": pick("llm_base_url", s.llm_base_url),
-        "api_key": pick("llm_api_key", s.llm_api_key),
-        "model": pick("llm_model", s.llm_model),
-        "vision_model": pick("vision_model", s.vision_model),
+        "provider": pick("llm_provider", s.llm_provider, "provider"),
+        "base_url": pick("llm_base_url", s.llm_base_url, "base_url"),
+        "api_key": pick("llm_api_key", s.llm_api_key, "api_key"),
+        "model": pick("llm_model", s.llm_model, "model"),
+        "vision_model": pick("vision_model", s.vision_model, "vision_model"),
         "timeout": s.llm_timeout,
+        "profile": active.get("name") if active else None,
     }

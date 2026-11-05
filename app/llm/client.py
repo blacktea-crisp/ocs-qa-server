@@ -19,6 +19,56 @@ def _client():
     return OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"], timeout=cfg["timeout"])
 
 
+def test_connection(cfg: dict | None = None) -> dict:
+    """发一次极简 chat 验证连通性。返回 {ok, model, latency_ms, reply, error}。"""
+    import time
+
+    cfg = cfg or effective_llm()
+    t0 = time.time()
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"], timeout=min(cfg.get("timeout", 60), 30))
+        resp = client.chat.completions.create(
+            model=cfg["model"],
+            messages=[{"role": "user", "content": "回复：OK"}],
+            max_tokens=8,
+            temperature=0,
+        )
+        reply = (resp.choices[0].message.content or "").strip()
+        return {
+            "ok": True,
+            "model": cfg["model"],
+            "latency_ms": int((time.time() - t0) * 1000),
+            "reply": reply[:80],
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "model": cfg.get("model"),
+            "latency_ms": int((time.time() - t0) * 1000),
+            "error": str(e)[:300],
+        }
+
+
+def list_models(cfg: dict | None = None) -> dict:
+    """获取 provider 支持的模型列表（OpenAI 兼容 GET /models）。返回 {ok, models[], error}。"""
+    cfg = cfg or effective_llm()
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"], timeout=20)
+        resp = client.models.list()
+        ids = []
+        for m in resp.data:
+            mid = getattr(m, "id", None) or (m.get("id") if isinstance(m, dict) else None)
+            if mid:
+                ids.append(mid)
+        return {"ok": True, "models": sorted(set(ids))}
+    except Exception as e:
+        return {"ok": False, "models": [], "error": str(e)[:300]}
+
+
 def chat(messages: list[dict], model: str | None = None) -> tuple[str, dict]:
     """纯文本对话。返回 (文本, usage)。"""
     cfg = effective_llm()

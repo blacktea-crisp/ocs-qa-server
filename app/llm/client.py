@@ -51,8 +51,26 @@ def test_connection(cfg: dict | None = None) -> dict:
         }
 
 
+import re as _re
+
+# 视觉/多模态模型名特征（小写匹配）。provider 的 /models 通常不标注能力，只能按名推断。
+_VISION_PATTERNS = [
+    r"vl", r"vision", r"llava", r"gpt-4o", r"gpt-4\.1", r"gpt-4-turbo", r"gpt-4-vision",
+    r"gemini", r"claude-3", r"claude-4", r"qwen.*vl", r"internvl", r"minicpm-v",
+    r"pixtral", r"moondream", r"cogvlm", r"yi-vl", r"glm-4v", r"llama.*vision",
+]
+
+
+def is_vision_model(name: str) -> bool:
+    n = (name or "").lower()
+    return any(_re.search(p, n) for p in _VISION_PATTERNS)
+
+
 def list_models(cfg: dict | None = None) -> dict:
-    """获取 provider 支持的模型列表（OpenAI 兼容 GET /models）。返回 {ok, models[], error}。"""
+    """获取 provider 支持的模型列表（OpenAI 兼容 GET /models）。
+
+    返回 {ok, models[], vision_models[], error}。vision_models 为按模型名推断的视觉模型子集。
+    """
     cfg = cfg or effective_llm()
     try:
         from openai import OpenAI
@@ -64,9 +82,11 @@ def list_models(cfg: dict | None = None) -> dict:
             mid = getattr(m, "id", None) or (m.get("id") if isinstance(m, dict) else None)
             if mid:
                 ids.append(mid)
-        return {"ok": True, "models": sorted(set(ids))}
+        models = sorted(set(ids))
+        vision = [m for m in models if is_vision_model(m)]
+        return {"ok": True, "models": models, "vision_models": vision}
     except Exception as e:
-        return {"ok": False, "models": [], "error": str(e)[:300]}
+        return {"ok": False, "models": [], "vision_models": [], "error": str(e)[:300]}
 
 
 def chat(messages: list[dict], model: str | None = None) -> tuple[str, dict]:

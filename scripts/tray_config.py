@@ -135,7 +135,7 @@ class ConfigWindow:
         self.var_provider = tk.StringVar()
         self.var_base = tk.StringVar()
         self.var_model = tk.StringVar()
-        self.var_vision = tk.StringVar()
+        self.var_profile_vision = tk.StringVar()
         self.var_key = tk.StringVar()
         r = self._grid_row(pf, r, "名称", ttk.Entry(pf, textvariable=self.var_name))
         r = self._grid_row(pf, r, "Provider", ttk.Entry(pf, textvariable=self.var_provider))
@@ -151,7 +151,15 @@ class ConfigWindow:
         self.cb_models.grid(row=0, column=2, padx=(6, 0))
         self.cb_models.bind("<<ComboboxSelected>>", lambda e: self._pick_model())
         r += 1
-        r = self._grid_row(pf, r, "视觉模型", ttk.Entry(pf, textvariable=self.var_vision))
+        ttk.Label(pf, text="视觉模型").grid(row=r, column=0, sticky="e", padx=(12, 8), pady=5)
+        vrow = ttk.Frame(pf)
+        vrow.grid(row=r, column=1, sticky="ew", padx=(0, 12), pady=5)
+        vrow.columnconfigure(0, weight=1)
+        ttk.Entry(vrow, textvariable=self.var_profile_vision).grid(row=0, column=0, sticky="ew")
+        self.cb_vmodels = ttk.Combobox(vrow, state="readonly", width=16)
+        self.cb_vmodels.grid(row=0, column=1, padx=(6, 0))
+        self.cb_vmodels.bind("<<ComboboxSelected>>", lambda e: self._pick_vmodel())
+        r += 1
         # API Key
         ttk.Label(pf, text="API Key").grid(row=r, column=0, sticky="e", padx=(12, 8), pady=5)
         krow = ttk.Frame(pf)
@@ -175,12 +183,12 @@ class ConfigWindow:
                                                             values=[t[0] for t in TRUST_OPTIONS]),
                            hint="三级：OCS请求 > 档案/设置 > .env")
         self.var_llm = tk.BooleanVar()
-        self.var_vision = tk.BooleanVar()
+        self.var_enable_vision = tk.BooleanVar()
         ttk.Label(beh, text="开关").grid(row=r, column=0, sticky="e", padx=(12, 8), pady=5)
         chk = ttk.Frame(beh)
         chk.grid(row=r, column=1, sticky="w", padx=(0, 12), pady=5)
         ttk.Checkbutton(chk, text="启用大模型", variable=self.var_llm).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(chk, text="启用识图", variable=self.var_vision).pack(side="left")
+        ttk.Checkbutton(chk, text="启用识图", variable=self.var_enable_vision).pack(side="left")
         r += 1
         self.var_sim = tk.StringVar()
         r = self._grid_row(beh, r, "相似阈值", ttk.Entry(beh, textvariable=self.var_sim), hint="0-1，默认 0.75")
@@ -206,7 +214,7 @@ class ConfigWindow:
         self.var_sim.set(env.get("SIMILARITY_THRESHOLD", "0.75"))
         self.var_trust.set(env.get("DEFAULT_ANSWER_TRUST", "prefer_trusted"))
         self.var_llm.set(env.get("ENABLE_LLM", "true").lower() == "true")
-        self.var_vision.set(env.get("ENABLE_VISION", "true").lower() == "true")
+        self.var_enable_vision.set(env.get("ENABLE_VISION", "true").lower() == "true")
 
     def _save_base(self):
         port = self.var_port.get().strip()
@@ -224,7 +232,7 @@ class ConfigWindow:
             "SIMILARITY_THRESHOLD": self.var_sim.get().strip(),
             "DEFAULT_ANSWER_TRUST": self.var_trust.get() or "prefer_trusted",
             "ENABLE_LLM": "true" if self.var_llm.get() else "false",
-            "ENABLE_VISION": "true" if self.var_vision.get() else "false",
+            "ENABLE_VISION": "true" if self.var_enable_vision.get() else "false",
         }
         try:
             sc.update_env(updates)
@@ -281,12 +289,12 @@ class ConfigWindow:
         self.var_provider.set(p.get("provider", ""))
         self.var_base.set(p.get("base_url", ""))
         self.var_model.set(p.get("model", ""))
-        self.var_vision.set(p.get("vision_model", ""))
+        self.var_profile_vision.set(p.get("vision_model", ""))
         self.var_key.set("")
         self._pf_msg("已设置（留空=不修改）" if p.get("api_key_set") else "填 API Key")
 
     def _new_profile(self):
-        for v in (self.var_name, self.var_provider, self.var_base, self.var_model, self.var_vision, self.var_key):
+        for v in (self.var_name, self.var_provider, self.var_base, self.var_model, self.var_profile_vision, self.var_key):
             v.set("")
         self.var_profile.set("")
         self._pf_msg("新建：填写后点『保存档案』")
@@ -301,7 +309,7 @@ class ConfigWindow:
             "provider": self.var_provider.get().strip() or "custom",
             "base_url": self.var_base.get().strip(),
             "model": self.var_model.get().strip(),
-            "vision_model": self.var_vision.get().strip(),
+            "vision_model": self.var_profile_vision.get().strip(),
         }
         if self.var_key.get():
             b["api_key"] = self.var_key.get()
@@ -369,7 +377,9 @@ class ConfigWindow:
                 self._pf_msg("获取失败：" + (r.get("error") or ""), err=True); return
             models = r.get("models") or []
             self.cb_models["values"] = models
-            self._pf_msg(f"共 {len(models)} 个模型，右侧下拉选择")
+            vmodels = r.get("vision_models") or []
+            self.cb_vmodels["values"] = vmodels
+            self._pf_msg(f"共 {len(models)} 个模型（视觉 {len(vmodels)} 个）")
         except Exception as e:
             self._pf_msg("获取失败：" + str(e), err=True)
 
@@ -377,6 +387,11 @@ class ConfigWindow:
         m = self.cb_models.get()
         if m:
             self.var_model.set(m)
+
+    def _pick_vmodel(self):
+        m = self.cb_vmodels.get()
+        if m:
+            self.var_profile_vision.set(m)
 
     def _test_conn(self):
         if not self._backend_ready():
